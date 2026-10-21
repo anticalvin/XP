@@ -41,3 +41,16 @@ test('sign out clears the local session even when the network fails', async () =
   assert.equal(h.auth.token, null);
   assert.equal(h.storage.getItem('xp-web-auth'), null);
 });
+
+test('signup requests the live XP confirmation redirect', async () => {
+ const h=harness(async()=>response(200,{user:{id:'u1'}}));
+ h.auth.redirectUrl='https://anticalvin.github.io/XP/';
+ await h.auth.signIn('test@example.com','pass123','signup');
+ assert.equal(new URL(h.calls[0][0]).searchParams.get('redirect_to'),'https://anticalvin.github.io/XP/');
+});
+test('email confirmation verifies user before restoring session', async () => {
+ const h=harness(async()=>response(200,{id:'u1',email:'test@example.com'}));
+ assert.equal(await h.auth.completeEmailConfirmation('#access_token=abc&refresh_token=xyz&expires_in=3600'),true);
+ assert.equal(h.auth.user.id,'u1');
+ assert.equal(h.calls[0][0],'https://example.supabase.co/auth/v1/user');
+});
