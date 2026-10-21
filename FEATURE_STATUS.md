@@ -29,3 +29,13 @@ This page separates behavior visible in the frontend from features that still ne
 - Friends have no blocking, abuse-reporting, or privacy controls in the current UI.
 - No dedicated analytics page, export/import restore flow, or account deletion flow is implemented.
 - The production RLS policies for friend and project-invite updates need hardening. See `SECURITY_REVIEW.md`.
+
+## Cloud sync foundation (draft PR #2)
+
+- Added an RLS-protected `xp_personal_state` table in the XP Supabase project, plus a revision-checked `xp_save_personal_state` RPC.
+- Added `cloud-sync.js` and cloud load/save hooks for signed-in accounts. Guest mode remains local.
+- First-time signed-in accounts with local guest progress are asked whether to import or start fresh.
+- This is a **snapshot-based early implementation**, not granular task sync. Two-device concurrent edits are detected as conflicts, not merged.
+- Cross-device real-browser tests have **not** yet been performed. Offline mutation queue, Realtime, and server-authorized XP rewards are not implemented.
+- The existing friendship and invite policy security findings remain outstanding.
+- Do not merge this draft PR until end-to-end account tests and conflict-handling UX are complete.
