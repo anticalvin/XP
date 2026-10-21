@@ -24,3 +24,11 @@
 
 ## Change discipline
 No database schema, RLS, storage keys, account redirect URLs or dependencies were changed by the visual update.
+
+## Account entry update
+
+- Signed-out visitors first see an account-entry screen with separate Sign in and Create account tabs, plus an explicit Continue as guest option.
+- Returning authenticated users bypass this screen after session restoration or email confirmation.
+- Guest users who open Profile see a sign-in/create-account prompt rather than signed-in profile settings. Guest tasks remain locally stored.
+- Supabase Auth endpoints, account-scoped cloud snapshots, and email confirmation behavior are unchanged. The built-in Supabase email sending quota still applies.
+- Static regression tests cover mode wiring and signed-out navigation. Manual real-device authentication testing is still needed.
