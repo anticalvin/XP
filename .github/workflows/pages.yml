@@ -1,29 +1,51 @@
 name: XP NEXT website
+
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
-  pages: write
-  id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: true
+
 jobs:
-  test-and-deploy:
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check application files
+        run: |
+          test -s index.html
+          grep -q 'XP NEXT' index.html
+          grep -q 'href="./style.css"' index.html
+          grep -q 'src="./app.js"' index.html
+          node --check app.js
+          node --check core.js
+          node --check auth-session.js
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Check homepage assets
-        run: |
-          test -s index.html
-          grep -q 'XP NEXT' index.html
-          grep -q 'ugoaqdsnizudjifghtoz.supabase.co' index.html
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
