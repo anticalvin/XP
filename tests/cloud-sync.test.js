@@ -22,3 +22,20 @@ test('conflicting edits are refused instead of overwriting',async()=>{
  await sync.load();
  await assert.rejects(sync.save({name:'stale'}),/Another device changed/);
 });
+
+test('rapid saves coalesce and share the result of the cloud write',async()=>{
+ let writes=0,release;
+ const gate=new Promise(resolve=>release=resolve);
+ const sync=new CloudSync({request:async(path,method,body)=>{
+  if(path.includes('xp_personal_state?'))return [];
+  writes++;if(writes===1)await gate;
+  return [{saved:true,current_revision:writes,current_state:body.next_state}];
+ }});
+ await sync.load();
+ const first=sync.save({name:'first'});
+ const second=sync.save({name:'latest'});
+ release();
+ await Promise.all([first,second]);
+ assert.equal(writes,2);
+ assert.equal(sync.revision,2);
+});
