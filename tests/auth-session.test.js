@@ -54,3 +54,9 @@ test('email confirmation verifies user before restoring session', async () => {
  assert.equal(h.auth.user.id,'u1');
  assert.equal(h.calls[0][0],'https://example.supabase.co/auth/v1/user');
 });
+
+test('auth signup surfaces an understandable email quota error',async()=>{
+ const h=harness(async()=>response(429,{code:'over_email_send_rate_limit',message:'email rate limit exceeded'}));
+ await assert.rejects(h.auth.signIn('test@example.com','password123','signup'),/Email sending temporarily limited/);
+ assert.equal(h.auth.token,null);
+});
