@@ -12,8 +12,8 @@ let data=XP.load(localStorage,KEY);
 const accountKey=id=>KEY+'-account-'+id;
 let accountOwner=null;
 let cloud=null,cloudStatus='Saved on this device',syncBlocked=false;
-let page='today',selected='',modal='',token=null,user=null,sessionInfo=null,seconds=0,ticker=null,authBusy=false,authCooldownUntil=0,authMessage='';
-const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,redirectUrl:'https://anticalvin.github.io/XP/',onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Session expired. Sign in again.')}});
+let page='today',selected='',modal='',token=null,user=null,sessionInfo=null,seconds=0,ticker=null,authBusy=false,authCooldownUntil=0,authMessage='',authMode='login',entryState='loading';
+const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,redirectUrl:'https://anticalvin.github.io/XP/',onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{entryState='welcome';authMode='login';authMessage='Session expired. Sign in again.';modal='';draw();}});
 const save=()=>{
  if(user){
   if(syncBlocked){toast('Cloud sync is paused. Your changes were not saved.');return}
@@ -103,7 +103,7 @@ async function api(path,method='GET',body=null){
 async function signOut(){
   try{await auth.signOut()}catch{}
   cloud=null;syncBlocked=false;cloudStatus='Saved on this device';
-  accountOwner=null;data=XP.load(localStorage,KEY);draw();toast('Signed out.')
+  accountOwner=null;data=XP.load(localStorage,KEY);entryState='welcome';authMode='login';authMessage='';modal='';draw();toast('Signed out.')
 }
 async function authSubmit(f){
   if(authBusy)return;
@@ -117,8 +117,8 @@ async function authSubmit(f){
   const submit=f.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.textContent='Please wait…'}
   try{
     const value=await auth.signIn(email,password,mode);
-    if(!value){modal='';draw();toast('Check your email to confirm your account.');return}
-    modal='';await loadAccount();toast('Signed in.');
+    if(!value){authMessage='Check your email for the confirmation link, then return here to sign in.';draw();return}
+    entryState='app';modal='';await loadAccount();toast('Signed in.');
   }catch(e){
     if(mode==='signup'&&/rate limit|too many requests|email.*limit|over_email_send_rate_limit/i.test(e.message)){
       authCooldownUntil=Date.now()+15*60*1000;
@@ -149,16 +149,35 @@ function overlay(){
  if(modal==='task')body=`<div class="kicker">TASK / NEW</div><h2 style="margin-top:12px">Create task</h2><form id="questForm"><label>Task name<input name="title" maxlength="160" placeholder="Finish presentation" required autofocus></label><label>Category<select name="category">${CATEGORIES.map(c=>'<option value="'+esc(c)+'">'+esc(categoryLabel(c))+'</option>').join('')}</select></label><label>Estimated time (minutes)<input name="minutes" type="number" min="5" max="600" value="25"></label><label>Due date (optional)<input type="date" name="due"></label><label>Priority<select name="priority"><option value="1">Normal</option><option value="2">High</option><option value="3">Urgent</option></select></label><label>Project<select name="project"><option value="">No project</option>${data.projects.map(p=>'<option value="'+esc(p.id)+'" '+(selected===p.id?'selected':'')+'>'+esc(p.title)+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn" type="submit">Create task</button></div></form>`;
  if(modal==='project')body=`<div class="kicker">PROJECT / NEW</div><h2 style="margin-top:12px">Create project</h2><form id="projectForm"><label>Project name<input name="title" maxlength="120" required placeholder="Build a portfolio"></label><label>Description<input name="description" maxlength="350" placeholder="What are you working toward?"></label><label>Project icon (optional)<select name="icon"><option value="🚀">Default</option><option value="🧩">Focus</option><option value="🎨">Creative</option><option value="📚">Learning</option><option value="🌱">Personal</option><option value="💻">Technical</option></select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn" type="submit">Create project</button></div></form>`;
  if(modal==='avatar')body=`<div class="kicker">PROFILE / EDIT</div><h2 style="margin-top:12px">Edit profile</h2><form id="avatarForm"><label>Display name<input name="name" maxlength="30" value="${esc(data.name)}" required></label><label>Avatar (optional)<select name="avatar">${['🦊','🐻','🐱','🐼','🐸','🦄','🐉','👩‍🚀','🧙','🦖'].map(a=>'<option '+(a===data.avatar?'selected':'')+'>'+a+'</option>').join('')}</select></label><p class="note">Existing avatar selections remain available. A custom character system is not yet implemented.</p><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn" type="submit">Save profile</button></div></form>`;
- if(modal==='auth')body=`<div class="kicker">ACCOUNT / ACCESS</div><h2 style="margin-top:12px">Sign in to XP NEXT</h2><p class="muted">Use your email and password. New accounts may require email confirmation.</p><form id="authForm" data-mode="login">${authMessage?'<p role="alert" style="color:var(--danger)">'+esc(authMessage)+'</p>':''}<label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" minlength="6" name="password" autocomplete="current-password" required></label><div class="actions"><button type="button" class="btn ghost" data-mode="signup">Create an account</button><button type="submit" class="btn">Sign in</button></div></form><button class="btn ghost" style="margin-top:12px" data-close="1">Cancel</button>`;
+ if(modal==='auth')body=authPanel(false);
  if(modal==='mission'){const t=data.tasks.find(t=>t.id===selected);body=`<div class="focus-stage"><div class="kicker">FOCUS / SESSION</div><h2 style="font-size:clamp(1.5rem,4vw,2.7rem);margin:17px auto;max-width:520px">${esc(t?.title||'Focus session')}</h2><p>One task. No distractions.</p><div id="timer" class="clock" role="timer" aria-live="off">${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}</div><div class="row"><button class="btn ghost" data-timer="1">${icon(ticker?'pause':'play')}${ticker?'Pause':'Start timer'}</button><button class="btn" data-finish="${esc(selected)}">${icon('check')} Complete task</button></div><p style="margin-top:22px">+${reward(t||{})} XP on first completion. Progress is self-reported.</p><button class="btn ghost" data-close="1">Back to tasks</button></div>`;}
  return `<div class="modalback" data-backdrop="1"><section role="dialog" aria-modal="true" aria-label="${modal==='mission'?'Focus session':'XP NEXT dialog'}" class="dialog">${body}</section></div>`;
 }
-function draw(){let content=page==='today'?today():page==='projects'?projects():page==='paths'?paths():page==='social'?social():you();$('#app').innerHTML=shell(content)+overlay();if(page==='social'&&user)queueMicrotask(socialLoad)}
+function authPanel(standalone=false){
+ const signup=authMode==='signup';
+ return `<div class="account-panel"><div class="kicker">ACCOUNT / ${signup?'CREATE':'ACCESS'}</div><h2 class="account-title">${signup?'Create your account':'Welcome back'}</h2><p class="muted">${signup?'Save progress across devices and connect with friends. You may need to confirm your email.':'Sign in to restore your progress, projects, and connections.'}</p><div class="auth-switch" role="group" aria-label="Account action"><button type="button" class="${!signup?'active':''}" data-mode="login" aria-pressed="${!signup}">Sign in</button><button type="button" class="${signup?'active':''}" data-mode="signup" aria-pressed="${signup}">Create account</button></div><form id="authForm" data-mode="${authMode}">${authMessage?'<p role="alert" class="auth-message">'+esc(authMessage)+'</p>':''}<label>Email address<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label><label>Password<input type="password" minlength="6" name="password" autocomplete="${signup?'new-password':'current-password'}" placeholder="${signup?'At least 6 characters':'Your password'}" required></label><button class="btn auth-submit" type="submit">${signup?'Create account':'Sign in'}</button></form>${standalone?'<button class="btn ghost auth-guest" type="button" data-guest="1">Continue as guest</button><p class="note account-note">Guest progress stays on this device until you choose to import it into an account.</p>':'<button class="btn ghost auth-guest" type="button" data-close="1">Not now</button>'}</div>`;
+}
+function welcome(){
+ return `<div class="entry-screen"><div class="entry-brand">XP<span>.</span> NEXT <small>01</small></div><div class="entry-grid"><section class="entry-intro"><div class="kicker">YOUR SPACE / YOUR PROGRESS</div><h1>Make your<br><em>next move.</em></h1><p>Tasks, projects and progress in one place. Keep moving, at your own pace.</p><div class="entry-stats"><span>FOCUS</span><span>PROGRESS</span><span>CONNECTION</span></div></section><section class="entry-auth" aria-label="Account access">${authPanel(true)}</section></div><div class="entry-footer">XP NEXT / PERSONAL SYSTEM <span>BUILT FOR REAL LIFE</span></div></div>`;
+}
+function profileGuest(){
+ return head('Profile','ACCOUNT / SIGN IN')+`<section class="card profile-guest"><div class="kicker">ACCOUNT / CLOUD SAVE</div><h2>Your progress, on every device.</h2><p class="muted">Sign in or create an account to access your profile, sync your progress and connect with friends.</p><div class="row" style="flex-wrap:wrap"><button class="btn" data-auth="signup">Create account</button><button class="btn ghost" data-auth="login">Sign in</button></div><p class="note">You can still work in guest mode. Your tasks are stored locally until you import them.</p></section>`;
+}
+function draw(){
+ const app=$('#app');
+ if(entryState==='loading'){app.innerHTML='<div class="entry-loading" role="status">Loading XP NEXT…</div>';return}
+ if(!user&&entryState==='welcome'){app.innerHTML=welcome();return}
+ let content=page==='today'?today():page==='projects'?projects():page==='paths'?paths():page==='social'?social():user?you():profileGuest();
+ app.innerHTML=shell(content)+overlay();
+ if(page==='social'&&user)queueMicrotask(socialLoad);
+}
 function finish(id){if(ticker){clearInterval(ticker);ticker=null}const result=XP.complete(data,id,uid,date);if(!result)return;save();modal='';draw();toast(result.points?'Task completed. +'+result.points+' XP.':'Task completed. XP was already awarded.')}
 document.addEventListener('click',async e=>{if(e.target.matches('.modalback')){modal='';if(ticker){clearInterval(ticker);ticker=null}draw();return}const b=e.target.closest('button');if(!b)return;const d=b.dataset;try{
 if(d.import){await importGuest(d.import==='yes');return}
 if(d.go)return go(d.go);
-if(d.modal){modal=d.modal;draw();queueMicrotask(()=>document.querySelector('.dialog input, .dialog button')?.focus());return}
+if(d.guest){entryState='app';authMessage='';draw();return}
+if(d.auth){authMode=d.auth;authMessage='';modal='auth';draw();queueMicrotask(()=>document.querySelector('#authForm input')?.focus());return}
+if(d.modal){if(d.modal==='auth'){authMode='login';authMessage=''}modal=d.modal;draw();queueMicrotask(()=>document.querySelector('.dialog input, .dialog button')?.focus());return}
 if(d.close){modal='';if(ticker){clearInterval(ticker);ticker=null}draw();return}
 if(d.back){selected='';draw();return}
 if(d.project){selected=d.project;draw();return}
@@ -171,7 +190,7 @@ if(d.complete){const t=data.tasks.find(t=>t.id===d.complete);if(t?.done){XP.togg
 if(d.del){if(confirm('Delete this task? This cannot be undone.')){XP.removeTask(data,d.del);save();draw()}return}
 if(d.logout){await signOut();return}
 if(d.export){const a=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.href=url;a.download='xp-next-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),500);return}
-if(d.mode){const form=$('#authForm');form.dataset.mode=d.mode;const submit=form.querySelector('button[type=submit]'),switcher=form.querySelector('button[data-mode]'),password=form.querySelector('input[name=password]');if(submit)submit.textContent=d.mode==='signup'?'Create account':'Sign in';if(switcher){switcher.dataset.mode=d.mode==='signup'?'login':'signup';switcher.textContent=d.mode==='signup'?'Already have an account? Sign in':'New here? Create an account'}if(password)password.autocomplete=d.mode==='signup'?'new-password':'current-password';return}
+if(d.mode){if(authBusy)return;const form=$('#authForm');const email=form?.querySelector('input[name="email"]')?.value||'';authMode=d.mode;authMessage='';draw();const input=$('#authForm input[name="email"]');if(input){input.value=email;input.focus()}return}
 if(d.accept){await api('/rest/v1/xp_friendships?id=eq.'+encodeURIComponent(d.accept),'PATCH',{status:'accepted'});toast('Friend added.');socialLoad();return}
 if(d.friend){await api('/rest/v1/xp_friendships','POST',{requester_id:user.id,addressee_id:d.friend,status:'pending'});toast('Friend request sent.');socialLoad();return}
 }catch(x){toast(x.message)}});
@@ -183,15 +202,17 @@ if(f.id==='authForm')await authSubmit(f);
 if(f.id==='findForm'){let q=String(fd.get('query')).replace(/[^a-zA-Z0-9_]/g,'').slice(0,24);if(q.length<2)throw Error('Search at least two characters');const p=await api('/rest/v1/xp_profiles?select=id,username,avatar&username=ilike.*'+encodeURIComponent(q)+'*&limit=12');$('#findresults').innerHTML=p.filter(x=>x.id!==user.id).map(x=>`<div class="socialitem">${esc(x.avatar)} ${esc(x.username)} <button class="btn sm" data-friend="${x.id}">Add friend</button></div>`).join('')||'<p class="muted">Nobody found yet.</p>'}
 }catch(x){toast(x.message)}});
 async function resume(){
-  const callback=location.hash.includes('access_token=')||location.hash.includes('error=');
-  if(callback){
-    try{
-      const verified=await auth.completeEmailConfirmation(location.hash);
-      history.replaceState(null,'',location.pathname+location.search);
-      if(verified){await loadAccount();toast('Email confirmed. Signed in.');return;}
-    }catch(e){history.replaceState(null,'',location.pathname+location.search);toast(e.message)}
-  }
-  const active=await auth.restore();if(active)await loadAccount();
+ const callback=location.hash.includes('access_token=')||location.hash.includes('error=');
+ if(callback){
+  try{
+   const verified=await auth.completeEmailConfirmation(location.hash);
+   history.replaceState(null,'',location.pathname+location.search);
+   if(verified){entryState='app';await loadAccount();toast('Email confirmed. Signed in.');return;}
+  }catch(e){history.replaceState(null,'',location.pathname+location.search);authMessage=e.message;}
+ }
+ const active=await auth.restore();
+ if(active){entryState='app';await loadAccount();}
+ else{entryState='welcome';draw();}
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal){modal='';if(ticker){clearInterval(ticker);ticker=null}draw()}});
 document.addEventListener('visibilitychange',()=>{
