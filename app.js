@@ -8,24 +8,36 @@ const KEY='xp-next-web-v1',SB='https://ugoaqdsnizudjifghtoz.supabase.co',PUB='sb
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID(),date=()=>new Date().toISOString().slice(0,10);
 let data=XP.load(localStorage,KEY);
+const accountKey=id=>KEY+'-account-'+id;
+let accountOwner=null;
 let cloud=null,cloudStatus='Guest mode · saved locally',syncBlocked=false;
 let page='today',selected='',modal='',token=null,user=null,sessionInfo=null,seconds=0,ticker=null,authBusy=false,authCooldownUntil=0,authMessage='';
 const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,redirectUrl:'https://anticalvin.github.io/XP/',onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Your session expired. Please sign in again.')}});
-const save=()=>{XP.save(localStorage,data,KEY);if(user&&cloud&&!syncBlocked)cloud.save(data).catch(e=>toast(e.message));};
+const save=()=>{
+ if(user){
+  if(syncBlocked){toast('Cloud sync is paused. Your changes were not saved.');return}
+  XP.save(localStorage,data,accountKey(user.id));
+  if(cloud)cloud.save(data).catch(e=>{syncBlocked=true;cloudStatus='Cloud sync paused: '+e.message;draw();toast(e.message)});
+ }else XP.save(localStorage,data,KEY);
+};
 async function loadAccount(){
+ if(!user)return;
+ accountOwner=user.id;
+ const guest=XP.load(localStorage,KEY);
+ data=XP.freshState();
  cloud=new CloudSync({request:api,onStatus:s=>{cloudStatus=s;const el=document.querySelector('#syncstatus');if(el)el.textContent=s}});
  syncBlocked=true;cloudStatus='Loading account…';
  try{
   const remote=await cloud.load();
-  if(remote){data={...XP.freshState(),...remote};XP.save(localStorage,data,KEY);syncBlocked=false;cloudStatus='Synced with Supabase';draw();return;}
-  if(data.tasks.length||data.projects.length||data.events.length||data.xp){cloudStatus='Import decision required';modal='import';draw();return;}
+  if(remote){data={...XP.freshState(),...remote};XP.save(localStorage,data,accountKey(user.id));syncBlocked=false;cloudStatus='Synced with Supabase';draw();return;}
+  if(guest.tasks.length||guest.projects.length||guest.events.length||guest.xp){data=guest;cloudStatus='Import decision required';modal='import';draw();return;}
   syncBlocked=false;await cloud.save(data);draw();
  }catch(e){cloudStatus='Cloud unavailable: '+e.message;syncBlocked=true;draw();toast(e.message)}
 }
 async function importGuest(yes){
  if(!cloud)return;
- if(yes){syncBlocked=false;await cloud.save(data);toast('Your adventure is backed up! ☁️');}
- else{data=XP.freshState();XP.save(localStorage,data,KEY);syncBlocked=false;await cloud.save(data);toast('Started a fresh cloud adventure.');}
+ if(yes){syncBlocked=false;await cloud.save(data);XP.save(localStorage,data,accountKey(user.id));localStorage.removeItem(KEY);toast('Your adventure is backed up! ☁️');}
+ else{data=XP.freshState();syncBlocked=false;await cloud.save(data);XP.save(localStorage,data,accountKey(user.id));toast('Started a fresh cloud adventure.');}
  modal='';draw();
 }
 const lvl=()=>XP.level(data.xp);
@@ -53,12 +65,12 @@ async function api(path,method='GET',body=null){
 async function signOut(){
   try{await auth.signOut()}catch{}
   cloud=null;syncBlocked=false;cloudStatus='Guest mode · saved locally';
-  data=XP.freshState();XP.save(localStorage,data,KEY);draw();toast('Signed out. Account data remains in Supabase.')
+  accountOwner=null;data=XP.load(localStorage,KEY);draw();toast('Signed out. Guest progress is separate from account data.')
 }
 async function authSubmit(f){
   if(authBusy)return;
   const remaining=authCooldownUntil-Date.now();
-  if(remaining>0){authMessage='Email sending is temporarily limited. Please wait before requesting another email.';draw();return}
+  if(remaining>0&&f.dataset.mode==='signup'){authMessage='Email sending is temporarily limited. Please wait before requesting another email.';draw();return}
   const fields=new FormData(f);
   const email=String(fields.get('email')||'').trim();
   const password=String(fields.get('password')||'');
@@ -70,7 +82,7 @@ async function authSubmit(f){
     if(!value){modal='';draw();toast('Check your email for a confirmation link ✉️');return}
     modal='';await loadAccount();toast('Welcome to the crew! 🎉');
   }catch(e){
-    if(/rate limit|too many requests|email.*limit|over_email_send_rate_limit/i.test(e.message)){
+    if(mode==='signup'&&/rate limit|too many requests|email.*limit|over_email_send_rate_limit/i.test(e.message)){
       authCooldownUntil=Date.now()+15*60*1000;
       authMessage='Supabase has temporarily reached its email sending limit. Your account may already exist. Please wait before trying again or sign in with an account you have confirmed.';
     }else{authMessage=e.message}
