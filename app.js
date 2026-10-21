@@ -10,7 +10,7 @@ const uid=()=>crypto.randomUUID(),date=()=>new Date().toISOString().slice(0,10);
 let data=XP.load(localStorage,KEY);
 let cloud=null,cloudStatus='Guest mode · saved locally',syncBlocked=false;
 let page='today',selected='',modal='',token=null,user=null,sessionInfo=null,seconds=0,ticker=null;
-const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Your session expired. Please sign in again.')}});
+const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,redirectUrl:'https://anticalvin.github.io/XP/',onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Your session expired. Please sign in again.')}});
 const save=()=>{XP.save(localStorage,data,KEY);if(user&&cloud&&!syncBlocked)cloud.save(data).catch(e=>toast(e.message));};
 async function loadAccount(){
  cloud=new CloudSync({request:api,onStatus:s=>{cloudStatus=s;const el=document.querySelector('#syncstatus');if(el)el.textContent=s}});
@@ -97,7 +97,17 @@ if(f.id==='avatarForm'){data.name=String(fd.get('name')).trim().slice(0,30);data
 if(f.id==='authForm')await authSubmit(f);
 if(f.id==='findForm'){let q=String(fd.get('query')).replace(/[^a-zA-Z0-9_]/g,'').slice(0,24);if(q.length<2)throw Error('Search at least two characters');const p=await api('/rest/v1/xp_profiles?select=id,username,avatar&username=ilike.*'+encodeURIComponent(q)+'*&limit=12');$('#findresults').innerHTML=p.filter(x=>x.id!==user.id).map(x=>`<div class="socialitem">${esc(x.avatar)} ${esc(x.username)} <button class="btn sm" data-friend="${x.id}">Add friend</button></div>`).join('')||'<p class="muted">Nobody found yet.</p>'}
 }catch(x){toast(x.message)}});
-async function resume(){const active=await auth.restore();if(active)await loadAccount();}
+async function resume(){
+  const callback=location.hash.includes('access_token=')||location.hash.includes('error=');
+  if(callback){
+    try{
+      const verified=await auth.completeEmailConfirmation(location.hash);
+      history.replaceState(null,'',location.pathname+location.search);
+      if(verified){await loadAccount();toast('Email confirmed! Welcome to XP 🎉');return;}
+    }catch(e){history.replaceState(null,'',location.pathname+location.search);toast(e.message)}
+  }
+  const active=await auth.restore();if(active)await loadAccount();
+}
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&auth.session?.expires_at<Date.now()+60000)auth.refresh().catch(()=>auth.expire());
 });
