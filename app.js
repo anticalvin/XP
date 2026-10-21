@@ -1,5 +1,6 @@
 import * as XP from './core.js';
 import { AuthSession } from './auth-session.js';
+import { CloudSync } from './cloud-sync.js';
 
 (()=>{
 'use strict';
@@ -7,9 +8,26 @@ const KEY='xp-next-web-v1',SB='https://ugoaqdsnizudjifghtoz.supabase.co',PUB='sb
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID(),date=()=>new Date().toISOString().slice(0,10);
 let data=XP.load(localStorage,KEY);
+let cloud=null,cloudStatus='Guest mode · saved locally',syncBlocked=false;
 let page='today',selected='',modal='',token=null,user=null,sessionInfo=null,seconds=0,ticker=null;
 const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Your session expired. Please sign in again.')}});
-const save=()=>XP.save(localStorage,data,KEY);
+const save=()=>{XP.save(localStorage,data,KEY);if(user&&cloud&&!syncBlocked)cloud.save(data).catch(e=>toast(e.message));};
+async function loadAccount(){
+ cloud=new CloudSync({request:api,onStatus:s=>{cloudStatus=s;const el=document.querySelector('#syncstatus');if(el)el.textContent=s}});
+ syncBlocked=true;cloudStatus='Loading account…';
+ try{
+  const remote=await cloud.load();
+  if(remote){data={...XP.freshState(),...remote};XP.save(localStorage,data,KEY);syncBlocked=false;cloudStatus='Synced with Supabase';draw();return;}
+  if(data.tasks.length||data.projects.length||data.events.length||data.xp){cloudStatus='Import decision required';modal='import';draw();return;}
+  syncBlocked=false;await cloud.save(data);draw();
+ }catch(e){cloudStatus='Cloud unavailable: '+e.message;syncBlocked=true;draw();toast(e.message)}
+}
+async function importGuest(yes){
+ if(!cloud)return;
+ if(yes){syncBlocked=false;await cloud.save(data);toast('Your adventure is backed up! ☁️');}
+ else{data=XP.freshState();XP.save(localStorage,data,KEY);syncBlocked=false;await cloud.save(data);toast('Started a fresh cloud adventure.');}
+ modal='';draw();
+}
 const lvl=()=>XP.level(data.xp);
 const reward=t=>XP.reward(t);
 const toast=s=>{const n=$('#toast');n.textContent=s;n.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>n.style.display='none',2800)};
@@ -34,24 +52,26 @@ async function api(path,method='GET',body=null){
 }
 async function signOut(){
   try{await auth.signOut()}catch{}
-  draw();toast('Signed out. Your local progress is still here.')
+  cloud=null;syncBlocked=false;cloudStatus='Guest mode · saved locally';
+  data=XP.freshState();XP.save(localStorage,data,KEY);draw();toast('Signed out. Account data remains in Supabase.')
 }
 async function authSubmit(f){
   const value=await auth.signIn(f.email.value,f.password.value,f.dataset.mode);
   if(!value){toast('Check your email to confirm your account ✉️');modal='';draw();return}
-  modal='';draw();toast('Welcome to the crew! 🎉')
+  modal='';await loadAccount();toast('Welcome to the crew! 🎉')
 }
 async function socialLoad(){if(!user)return;try{let fs=await api('/rest/v1/xp_friendships?select=*&or=(requester_id.eq.'+user.id+',addressee_id.eq.'+user.id+')');let ids=[...new Set(fs.flatMap(x=>[x.requester_id,x.addressee_id]).filter(x=>x!==user.id))];let ps=ids.length?await api('/rest/v1/xp_profiles?select=id,username,avatar&id=in.('+ids.join(',')+')'):[];const target=$('#socialdata');if(!target)return;target.innerHTML=fs.length?fs.map(x=>{let p=ps.find(z=>z.id===(x.requester_id===user.id?x.addressee_id:x.requester_id));return `<div class="socialitem">👤 ${esc(p?.username||'Player')} · ${esc(x.status)} ${x.status==='pending'&&x.addressee_id===user.id?'<button class="btn sm" data-accept="'+x.id+'">Accept</button>':''}</div>`}).join(''):'<p class="muted">Your next teammate is out there.</p>'}catch(e){toast(e.message)}}
 function social(){return head('The crew 🤝','REAL PROJECTS, REAL FRIENDS')+(user?`<div class="grid"><div class="card"><h2>🔎 Find your friends</h2><form id="findForm"><label>Search player username<input name="query" minlength="2" placeholder="Their username" required></label><button class="btn">Search players</button></form><div id="findresults"></div></div><div class="card"><h2>💌 Friends & requests</h2><div id="socialdata"><p class="muted">Loading social adventures…</p></div></div></div>`:`<div class="card center"><div style="font-size:55px">🤝</div><h2>Adventures are better together.</h2><p class="muted">Create an account to find friends and send invitations.</p><button class="btn" data-modal="auth">Sign in / sign up</button></div>`)}
-function overlay(){if(!modal)return'';let body='';if(modal==='task')body=`<h2>✨ New quest</h2><p class="muted">One real thing you want to accomplish.</p><form id="questForm"><label>What are we doing?<input name="title" maxlength="160" placeholder="e.g. Finish my presentation" required autofocus></label><label>Life path<select name="category">${['📚 Learning','💪 Fitness','🎨 Creativity','💻 Work','💖 Life','🌎 Adventure'].map(c=>'<option>'+c+'</option>').join('')}</select></label><label>Estimated minutes<input name="minutes" type="number" min="5" max="600" value="25"></label><label>Due date (optional)<input type="date" name="due"></label><label>Priority<select name="priority"><option value="1">Normal</option><option value="2">Important</option><option value="3">Urgent</option></select></label><label>Project<select name="project"><option value="">No project</option>${data.projects.map(p=>'<option value="'+p.id+'" '+(selected===p.id?'selected':'')+'>'+esc(p.title)+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Add quest ✨</button></div></form>`;
+function overlay(){if(!modal)return'';let body='';if(modal==='import')body=`<h2>☁️ Bring your adventure?</h2><p class="muted">We found quests on this browser, but your account has no cloud progress. Import your tasks, projects, XP and history, or start fresh.</p><div class="actions"><button class="btn ghost" data-import="no">Start fresh</button><button class="btn orange" data-import="yes">Import my progress</button></div>`;if(modal==='task')body=`<h2>✨ New quest</h2><p class="muted">One real thing you want to accomplish.</p><form id="questForm"><label>What are we doing?<input name="title" maxlength="160" placeholder="e.g. Finish my presentation" required autofocus></label><label>Life path<select name="category">${['📚 Learning','💪 Fitness','🎨 Creativity','💻 Work','💖 Life','🌎 Adventure'].map(c=>'<option>'+c+'</option>').join('')}</select></label><label>Estimated minutes<input name="minutes" type="number" min="5" max="600" value="25"></label><label>Due date (optional)<input type="date" name="due"></label><label>Priority<select name="priority"><option value="1">Normal</option><option value="2">Important</option><option value="3">Urgent</option></select></label><label>Project<select name="project"><option value="">No project</option>${data.projects.map(p=>'<option value="'+p.id+'" '+(selected===p.id?'selected':'')+'>'+esc(p.title)+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Add quest ✨</button></div></form>`;
 if(modal==='project')body=`<h2>🚀 New project</h2><form id="projectForm"><label>Project name<input name="title" maxlength="120" required placeholder="Build a portfolio"></label><label>Description<input name="description" maxlength="350" placeholder="What makes this worth doing?"></label><label>Icon<select name="icon"><option>🚀</option><option>🧩</option><option>🎨</option><option>📚</option><option>🌱</option><option>💻</option></select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Create project</button></div></form>`;
 if(modal==='avatar')body=`<h2>🎨 Your character</h2><p class="muted">Choose a look for your real-life hero.</p><form id="avatarForm"><label>Name<input name="name" maxlength="30" value="${esc(data.name)}" required></label><label>Avatar<select name="avatar">${['🦊','🐻','🐱','🐼','🐸','🦄','🐉','👩‍🚀','🧙','🦖'].map(a=>'<option '+(a===data.avatar?'selected':'')+'>'+a+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Save character</button></div></form>`;
 if(modal==='auth')body=`<h2>🤝 Join the crew</h2><p class="muted">XP uses Supabase authentication. You may need to verify your email.</p><form id="authForm" data-mode="login"><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" minlength="6" name="password" autocomplete="current-password" required></label><div class="actions"><button type="button" class="btn ghost" data-mode="signup">New here? Create an account</button><button type="submit" class="btn">Sign in</button></div></form><button class="btn ghost" style="margin-top:12px" data-close="1">Cancel</button>`;
 if(modal==='mission'){const t=data.tasks.find(t=>t.id===selected);body=`<div class="center"><div style="font-size:60px">⚔️</div><div class="kicker">YOUR REAL-WORLD MISSION</div><h2>${esc(t?.title||'Your quest')}</h2><p class="muted">Put down your phone and do the thing. Come back when you're ready!</p><h1 id="timer"> ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}</h1><div class="row" style="justify-content:center"><button class="btn ghost" data-timer="1">${ticker?'Pause':'Start focus timer'}</button><button class="btn orange" data-finish="${selected}">Mission complete ✓</button></div><p class="muted">+ ${reward(t||{})} personal XP. Completion is self-reported.</p><button class="btn ghost space" data-close="1">Back to dashboard</button></div>`}
 return `<div class="modalback"><div class="dialog">${body}</div></div>`}
-function draw(){let content=page==='today'?today():page==='projects'?projects():page==='paths'?paths():page==='social'?social():you();$('#app').innerHTML=shell(content)+overlay();if(page==='social'&&user)queueMicrotask(socialLoad)}
+function draw(){let content=page==='today'?today():page==='projects'?projects():page==='paths'?paths():page==='social'?social():you();$('#app').innerHTML=shell(content)+`<div id="syncstatus" role="status" aria-live="polite" style="position:fixed;bottom:70px;right:12px;z-index:4;background:#fff;border:1px solid #ddd;border-radius:10px;padding:5px 9px;font-size:11px;color:#454057">${esc(cloudStatus)}</div>`+overlay();if(page==='social'&&user)queueMicrotask(socialLoad)}
 function finish(id){if(ticker){clearInterval(ticker);ticker=null}const result=XP.complete(data,id,uid,date);if(!result)return;save();modal='';draw();toast(result.points?'🎉 QUEST COMPLETE! +'+result.points+' XP!':'Quest marked complete. XP was already earned for this quest.')}
 document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;try{
+if(d.import){await importGuest(d.import==='yes');return}
 if(d.go)return go(d.go);
 if(d.modal){modal=d.modal;draw();return}
 if(d.close){modal='';if(ticker){clearInterval(ticker);ticker=null}draw();return}
@@ -77,7 +97,7 @@ if(f.id==='avatarForm'){data.name=String(fd.get('name')).trim().slice(0,30);data
 if(f.id==='authForm')await authSubmit(f);
 if(f.id==='findForm'){let q=String(fd.get('query')).replace(/[^a-zA-Z0-9_]/g,'').slice(0,24);if(q.length<2)throw Error('Search at least two characters');const p=await api('/rest/v1/xp_profiles?select=id,username,avatar&username=ilike.*'+encodeURIComponent(q)+'*&limit=12');$('#findresults').innerHTML=p.filter(x=>x.id!==user.id).map(x=>`<div class="socialitem">${esc(x.avatar)} ${esc(x.username)} <button class="btn sm" data-friend="${x.id}">Add friend</button></div>`).join('')||'<p class="muted">Nobody found yet.</p>'}
 }catch(x){toast(x.message)}});
-async function resume(){const active=await auth.restore();if(active)draw()}
+async function resume(){const active=await auth.restore();if(active)await loadAccount();}
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&auth.session?.expires_at<Date.now()+60000)auth.refresh().catch(()=>auth.expire());
 });
