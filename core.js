@@ -1,7 +1,7 @@
 export const STORAGE_KEY = 'xp-next-web-v1';
 
 export function freshState() {
-  return { name: 'Adventurer', avatar: '🦊', xp: 0, coins: 0, tasks: [], projects: [], events: [], minutes: 30, energy: 'steady' };
+  return { name: 'Player', avatar: '🦊', xp: 0, coins: 0, tasks: [], projects: [], events: [], minutes: 30, energy: 'steady' };
 }
 
 export function load(storage, key = STORAGE_KEY) {
