@@ -6,11 +6,11 @@ export class CloudSync {
   this.inFlight=this.flush();return this.inFlight;
  }
  async flush(){
-  try{while(this.pending){const snapshot=this.pending;this.pending=null;this.onStatus('Saving…');
+  try{while(this.pending){const snapshot=this.pending;this.pending=null;this.onStatus('Syncing changes…');
    const rows=await this.request('/rest/v1/rpc/xp_save_personal_state','POST',{expected_revision:this.revision,next_state:snapshot});
    const row=rows?.[0];if(!row)throw Error('Cloud save returned no result');
-   if(!row.saved){this.pending=null;this.onStatus('Sync conflict: reload to review newer cloud data');throw Error('Another device changed your progress. Refresh before editing again.');}
-   this.revision=row.current_revision;this.onStatus('Saved to cloud');
-  }}catch(e){this.onStatus('Sync failed: '+e.message);throw e}finally{this.busy=false;this.inFlight=null;}
+   if(!row.saved){this.pending=null;this.onStatus('Sync paused: newer cloud progress found');throw Error('Another device changed your progress. Refresh before editing again.');}
+   this.revision=row.current_revision;this.onStatus('Cloud synced');
+  }}catch(e){this.onStatus('Sync paused: '+e.message);throw e}finally{this.busy=false;this.inFlight=null;}
  }
 }
