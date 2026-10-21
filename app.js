@@ -11,9 +11,9 @@ const uid=()=>crypto.randomUUID(),date=()=>new Date().toISOString().slice(0,10);
 let data=XP.load(localStorage,KEY);
 const accountKey=id=>KEY+'-account-'+id;
 let accountOwner=null;
-let cloud=null,cloudStatus='Guest mode · saved locally',syncBlocked=false;
+let cloud=null,cloudStatus='Saved on this device',syncBlocked=false;
 let page='today',selected='',modal='',token=null,user=null,sessionInfo=null,seconds=0,ticker=null,authBusy=false,authCooldownUntil=0,authMessage='';
-const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,redirectUrl:'https://anticalvin.github.io/XP/',onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Your session expired. Please sign in again.')}});
+const auth=new AuthSession({baseUrl:SB,publicKey:PUB,storage:localStorage,redirectUrl:'https://anticalvin.github.io/XP/',onChange:s=>{sessionInfo=s;token=s?.access_token||null;user=s?.user||null},onExpired:()=>{draw();toast('Session expired. Sign in again.')}});
 const save=()=>{
  if(user){
   if(syncBlocked){toast('Cloud sync is paused. Your changes were not saved.');return}
@@ -27,18 +27,18 @@ async function loadAccount(){
  const guest=XP.load(localStorage,KEY);
  data=XP.freshState();
  cloud=new CloudSync({request:api,onStatus:s=>{cloudStatus=s;const el=document.querySelector('#syncstatus');if(el)el.textContent=s}});
- syncBlocked=true;cloudStatus='Loading account…';
+ syncBlocked=true;cloudStatus='Loading your account…';
  try{
   const remote=await cloud.load();
-  if(remote){data={...XP.freshState(),...remote};XP.save(localStorage,data,accountKey(user.id));syncBlocked=false;cloudStatus='Synced with Supabase';draw();return;}
-  if(guest.tasks.length||guest.projects.length||guest.events.length||guest.xp){data=guest;cloudStatus='Import decision required';modal='import';draw();return;}
+  if(remote){data={...XP.freshState(),...remote};XP.save(localStorage,data,accountKey(user.id));syncBlocked=false;cloudStatus='Cloud synced';draw();return;}
+  if(guest.tasks.length||guest.projects.length||guest.events.length||guest.xp){data=guest;cloudStatus='Choose where to start';modal='import';draw();return;}
   syncBlocked=false;await cloud.save(data);draw();
  }catch(e){cloudStatus='Cloud unavailable: '+e.message;syncBlocked=true;draw();toast(e.message)}
 }
 async function importGuest(yes){
  if(!cloud)return;
- if(yes){syncBlocked=false;await cloud.save(data);XP.save(localStorage,data,accountKey(user.id));localStorage.removeItem(KEY);toast('Your adventure is backed up! ☁️');}
- else{data=XP.freshState();syncBlocked=false;await cloud.save(data);XP.save(localStorage,data,accountKey(user.id));toast('Started a fresh cloud adventure.');}
+ if(yes){syncBlocked=false;await cloud.save(data);XP.save(localStorage,data,accountKey(user.id));localStorage.removeItem(KEY);toast('Progress imported.');}
+ else{data=XP.freshState();syncBlocked=false;await cloud.save(data);XP.save(localStorage,data,accountKey(user.id));toast('Cloud profile created.');}
  modal='';draw();
 }
 const lvl=()=>XP.level(data.xp);
@@ -102,8 +102,8 @@ async function api(path,method='GET',body=null){
 }
 async function signOut(){
   try{await auth.signOut()}catch{}
-  cloud=null;syncBlocked=false;cloudStatus='Guest mode · saved locally';
-  accountOwner=null;data=XP.load(localStorage,KEY);draw();toast('Signed out. Guest progress is separate from account data.')
+  cloud=null;syncBlocked=false;cloudStatus='Saved on this device';
+  accountOwner=null;data=XP.load(localStorage,KEY);draw();toast('Signed out.')
 }
 async function authSubmit(f){
   if(authBusy)return;
@@ -117,8 +117,8 @@ async function authSubmit(f){
   const submit=f.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.textContent='Please wait…'}
   try{
     const value=await auth.signIn(email,password,mode);
-    if(!value){modal='';draw();toast('Check your email for a confirmation link ✉️');return}
-    modal='';await loadAccount();toast('Welcome to the crew! 🎉');
+    if(!value){modal='';draw();toast('Check your email to confirm your account.');return}
+    modal='';await loadAccount();toast('Signed in.');
   }catch(e){
     if(mode==='signup'&&/rate limit|too many requests|email.*limit|over_email_send_rate_limit/i.test(e.message)){
       authCooldownUntil=Date.now()+15*60*1000;
@@ -142,38 +142,43 @@ function social(){
  return head('Friends','SOCIAL / CONNECTIONS')+(user?`<div class="grid"><section class="card"><h2>Find players</h2><p class="muted">Search by username to send a friend request.</p><form id="findForm"><label>Username<input name="query" minlength="2" maxlength="24" placeholder="Search username" required></label><button class="btn" type="submit">${icon('search')} Search</button></form><div id="findresults" aria-live="polite"></div></section><section class="card"><h2>Friends & requests</h2><div id="socialdata"><p class="muted">Loading connections…</p></div></section></div>`:`<section class="card center"><div class="kicker">SOCIAL / SIGN IN REQUIRED</div><h2 style="margin-top:18px">Connect with people you know.</h2><p class="muted">Sign in to search players and send friend requests.</p><button class="btn" data-modal="auth">Sign in or create account</button></section>`);
 }
 
-function overlay(){if(!modal)return'';let body='';if(modal==='import')body=`<h2>☁️ Bring your adventure?</h2><p class="muted">We found quests on this browser, but your account has no cloud progress. Import your tasks, projects, XP and history, or start fresh.</p><div class="actions"><button class="btn ghost" data-import="no">Start fresh</button><button class="btn orange" data-import="yes">Import my progress</button></div>`;if(modal==='task')body=`<h2>✨ New quest</h2><p class="muted">One real thing you want to accomplish.</p><form id="questForm"><label>What are we doing?<input name="title" maxlength="160" placeholder="e.g. Finish my presentation" required autofocus></label><label>Life path<select name="category">${['📚 Learning','💪 Fitness','🎨 Creativity','💻 Work','💖 Life','🌎 Adventure'].map(c=>'<option>'+c+'</option>').join('')}</select></label><label>Estimated minutes<input name="minutes" type="number" min="5" max="600" value="25"></label><label>Due date (optional)<input type="date" name="due"></label><label>Priority<select name="priority"><option value="1">Normal</option><option value="2">Important</option><option value="3">Urgent</option></select></label><label>Project<select name="project"><option value="">No project</option>${data.projects.map(p=>'<option value="'+p.id+'" '+(selected===p.id?'selected':'')+'>'+esc(p.title)+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Add quest ✨</button></div></form>`;
-if(modal==='project')body=`<h2>🚀 New project</h2><form id="projectForm"><label>Project name<input name="title" maxlength="120" required placeholder="Build a portfolio"></label><label>Description<input name="description" maxlength="350" placeholder="What makes this worth doing?"></label><label>Icon<select name="icon"><option>🚀</option><option>🧩</option><option>🎨</option><option>📚</option><option>🌱</option><option>💻</option></select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Create project</button></div></form>`;
-if(modal==='avatar')body=`<h2>🎨 Your character</h2><p class="muted">Choose a look for your real-life hero.</p><form id="avatarForm"><label>Name<input name="name" maxlength="30" value="${esc(data.name)}" required></label><label>Avatar<select name="avatar">${['🦊','🐻','🐱','🐼','🐸','🦄','🐉','👩‍🚀','🧙','🦖'].map(a=>'<option '+(a===data.avatar?'selected':'')+'>'+a+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn">Save character</button></div></form>`;
-if(modal==='auth')body=`<h2>🤝 Join the crew</h2><p class="muted">XP uses Supabase authentication. You may need to verify your email.</p><form id="authForm" data-mode="login">${authMessage?'<p role="alert" class="muted">'+esc(authMessage)+'</p>':''}<label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" minlength="6" name="password" autocomplete="current-password" required></label><div class="actions"><button type="button" class="btn ghost" data-mode="signup">New here? Create an account</button><button type="submit" class="btn">Sign in</button></div></form><button class="btn ghost" style="margin-top:12px" data-close="1">Cancel</button>`;
-if(modal==='mission'){const t=data.tasks.find(t=>t.id===selected);body=`<div class="center"><div style="font-size:60px">⚔️</div><div class="kicker">YOUR REAL-WORLD MISSION</div><h2>${esc(t?.title||'Your quest')}</h2><p class="muted">Put down your phone and do the thing. Come back when you're ready!</p><h1 id="timer"> ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}</h1><div class="row" style="justify-content:center"><button class="btn ghost" data-timer="1">${ticker?'Pause':'Start focus timer'}</button><button class="btn orange" data-finish="${selected}">Mission complete ✓</button></div><p class="muted">+ ${reward(t||{})} personal XP. Completion is self-reported.</p><button class="btn ghost space" data-close="1">Back to dashboard</button></div>`}
-return `<div class="modalback"><div class="dialog">${body}</div></div>`}
-function draw(){let content=page==='today'?today():page==='projects'?projects():page==='paths'?paths():page==='social'?social():you();$('#app').innerHTML=shell(content)+`<div id="syncstatus" role="status" aria-live="polite" style="position:fixed;bottom:70px;right:12px;z-index:4;background:#fff;border:1px solid #ddd;border-radius:10px;padding:5px 9px;font-size:11px;color:#454057">${esc(cloudStatus)}</div>`+overlay();if(page==='social'&&user)queueMicrotask(socialLoad)}
-function finish(id){if(ticker){clearInterval(ticker);ticker=null}const result=XP.complete(data,id,uid,date);if(!result)return;save();modal='';draw();toast(result.points?'🎉 QUEST COMPLETE! +'+result.points+' XP!':'Quest marked complete. XP was already earned for this quest.')}
-document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;try{
+function overlay(){
+ if(!modal)return'';
+ let body='';
+ if(modal==='import')body=`<h2>Restore local progress?</h2><p class="muted">This account has no cloud data. You can import the tasks and progress stored on this device or start with a new profile.</p><div class="actions"><button class="btn ghost" data-import="no">Start fresh</button><button class="btn" data-import="yes">Import progress</button></div>`;
+ if(modal==='task')body=`<div class="kicker">TASK / NEW</div><h2 style="margin-top:12px">Create task</h2><form id="questForm"><label>Task name<input name="title" maxlength="160" placeholder="Finish presentation" required autofocus></label><label>Category<select name="category">${CATEGORIES.map(c=>'<option value="'+esc(c)+'">'+esc(categoryLabel(c))+'</option>').join('')}</select></label><label>Estimated time (minutes)<input name="minutes" type="number" min="5" max="600" value="25"></label><label>Due date (optional)<input type="date" name="due"></label><label>Priority<select name="priority"><option value="1">Normal</option><option value="2">High</option><option value="3">Urgent</option></select></label><label>Project<select name="project"><option value="">No project</option>${data.projects.map(p=>'<option value="'+esc(p.id)+'" '+(selected===p.id?'selected':'')+'>'+esc(p.title)+'</option>').join('')}</select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn" type="submit">Create task</button></div></form>`;
+ if(modal==='project')body=`<div class="kicker">PROJECT / NEW</div><h2 style="margin-top:12px">Create project</h2><form id="projectForm"><label>Project name<input name="title" maxlength="120" required placeholder="Build a portfolio"></label><label>Description<input name="description" maxlength="350" placeholder="What are you working toward?"></label><label>Project icon (optional)<select name="icon"><option value="🚀">Default</option><option value="🧩">Focus</option><option value="🎨">Creative</option><option value="📚">Learning</option><option value="🌱">Personal</option><option value="💻">Technical</option></select></label><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn" type="submit">Create project</button></div></form>`;
+ if(modal==='avatar')body=`<div class="kicker">PROFILE / EDIT</div><h2 style="margin-top:12px">Edit profile</h2><form id="avatarForm"><label>Display name<input name="name" maxlength="30" value="${esc(data.name)}" required></label><label>Avatar (optional)<select name="avatar">${['🦊','🐻','🐱','🐼','🐸','🦄','🐉','👩‍🚀','🧙','🦖'].map(a=>'<option '+(a===data.avatar?'selected':'')+'>'+a+'</option>').join('')}</select></label><p class="note">Existing avatar selections remain available. A custom character system is not yet implemented.</p><div class="actions"><button type="button" class="btn ghost" data-close="1">Cancel</button><button class="btn" type="submit">Save profile</button></div></form>`;
+ if(modal==='auth')body=`<div class="kicker">ACCOUNT / ACCESS</div><h2 style="margin-top:12px">Sign in to XP NEXT</h2><p class="muted">Use your email and password. New accounts may require email confirmation.</p><form id="authForm" data-mode="login">${authMessage?'<p role="alert" style="color:var(--danger)">'+esc(authMessage)+'</p>':''}<label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" minlength="6" name="password" autocomplete="current-password" required></label><div class="actions"><button type="button" class="btn ghost" data-mode="signup">Create an account</button><button type="submit" class="btn">Sign in</button></div></form><button class="btn ghost" style="margin-top:12px" data-close="1">Cancel</button>`;
+ if(modal==='mission'){const t=data.tasks.find(t=>t.id===selected);body=`<div class="focus-stage"><div class="kicker">FOCUS / SESSION</div><h2 style="font-size:clamp(1.5rem,4vw,2.7rem);margin:17px auto;max-width:520px">${esc(t?.title||'Focus session')}</h2><p>One task. No distractions.</p><div id="timer" class="clock" role="timer" aria-live="off">${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}</div><div class="row"><button class="btn ghost" data-timer="1">${icon(ticker?'pause':'play')}${ticker?'Pause':'Start timer'}</button><button class="btn" data-finish="${esc(selected)}">${icon('check')} Complete task</button></div><p style="margin-top:22px">+${reward(t||{})} XP on first completion. Progress is self-reported.</p><button class="btn ghost" data-close="1">Back to tasks</button></div>`;}
+ return `<div class="modalback" data-backdrop="1"><section role="dialog" aria-modal="true" aria-label="${modal==='mission'?'Focus session':'XP NEXT dialog'}" class="dialog">${body}</section></div>`;
+}
+function draw(){let content=page==='today'?today():page==='projects'?projects():page==='paths'?paths():page==='social'?social():you();$('#app').innerHTML=shell(content)+overlay();if(page==='social'&&user)queueMicrotask(socialLoad)}
+function finish(id){if(ticker){clearInterval(ticker);ticker=null}const result=XP.complete(data,id,uid,date);if(!result)return;save();modal='';draw();toast(result.points?'Task completed. +'+result.points+' XP.':'Task completed. XP was already awarded.')}
+document.addEventListener('click',async e=>{if(e.target.matches('.modalback')){modal='';if(ticker){clearInterval(ticker);ticker=null}draw();return}const b=e.target.closest('button');if(!b)return;const d=b.dataset;try{
 if(d.import){await importGuest(d.import==='yes');return}
 if(d.go)return go(d.go);
-if(d.modal){modal=d.modal;draw();return}
+if(d.modal){modal=d.modal;draw();queueMicrotask(()=>document.querySelector('.dialog input, .dialog button')?.focus());return}
 if(d.close){modal='';if(ticker){clearInterval(ticker);ticker=null}draw();return}
 if(d.back){selected='';draw();return}
 if(d.project){selected=d.project;draw();return}
 if(d.time){data.minutes=+d.time;save();draw();return}
 if(d.energy){data.energy=d.energy;save();draw();return}
 if(d.play){selected=d.play;seconds=(+data.tasks.find(t=>t.id===selected)?.minutes||15)*60;modal='mission';draw();return}
-if(d.timer){if(ticker){clearInterval(ticker);ticker=null;draw()}else{ticker=setInterval(()=>{seconds=Math.max(0,seconds-1);const n=$('#timer');if(n)n.textContent=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');if(!seconds){clearInterval(ticker);ticker=null;toast('Focus time finished! 🎯')}},1000);draw()}return}
+if(d.timer){if(ticker){clearInterval(ticker);ticker=null;draw()}else{ticker=setInterval(()=>{seconds=Math.max(0,seconds-1);const n=$('#timer');if(n)n.textContent=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');if(!seconds){clearInterval(ticker);ticker=null;toast('Focus time finished.')}},1000);draw()}return}
 if(d.finish)return finish(d.finish);
 if(d.complete){const t=data.tasks.find(t=>t.id===d.complete);if(t?.done){XP.toggleComplete(data,t.id);save();draw()}else finish(d.complete);return}
-if(d.del){if(confirm('Remove this quest?')){XP.removeTask(data,d.del);save();draw()}return}
+if(d.del){if(confirm('Delete this task? This cannot be undone.')){XP.removeTask(data,d.del);save();draw()}return}
 if(d.logout){await signOut();return}
 if(d.export){const a=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.href=url;a.download='xp-next-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),500);return}
 if(d.mode){const form=$('#authForm');form.dataset.mode=d.mode;const submit=form.querySelector('button[type=submit]'),switcher=form.querySelector('button[data-mode]'),password=form.querySelector('input[name=password]');if(submit)submit.textContent=d.mode==='signup'?'Create account':'Sign in';if(switcher){switcher.dataset.mode=d.mode==='signup'?'login':'signup';switcher.textContent=d.mode==='signup'?'Already have an account? Sign in':'New here? Create an account'}if(password)password.autocomplete=d.mode==='signup'?'new-password':'current-password';return}
-if(d.accept){await api('/rest/v1/xp_friendships?id=eq.'+encodeURIComponent(d.accept),'PATCH',{status:'accepted'});toast('Friend added! 💌');socialLoad();return}
-if(d.friend){await api('/rest/v1/xp_friendships','POST',{requester_id:user.id,addressee_id:d.friend,status:'pending'});toast('Friend request sent!');socialLoad();return}
+if(d.accept){await api('/rest/v1/xp_friendships?id=eq.'+encodeURIComponent(d.accept),'PATCH',{status:'accepted'});toast('Friend added.');socialLoad();return}
+if(d.friend){await api('/rest/v1/xp_friendships','POST',{requester_id:user.id,addressee_id:d.friend,status:'pending'});toast('Friend request sent.');socialLoad();return}
 }catch(x){toast(x.message)}});
 document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target;const fd=new FormData(f);try{
-if(f.id==='questForm'){data.tasks.unshift({id:uid(),title:String(fd.get('title')).trim().slice(0,160),category:fd.get('category'),minutes:Math.max(5,Math.min(600,+fd.get('minutes')||25)),priority:+fd.get('priority')||1,due:fd.get('due')||'',projectId:fd.get('project')||'',done:false});modal='';save();draw();toast('New quest unlocked! 🌟')}
-if(f.id==='projectForm'){XP.createProject(data,{id:uid(),title:String(fd.get('title')).trim().slice(0,120),description:String(fd.get('description')||''),icon:fd.get('icon')});modal='';save();go('projects');toast('New adventure created! 🚀')}
-if(f.id==='avatarForm'){data.name=String(fd.get('name')).trim().slice(0,30);data.avatar=fd.get('avatar');modal='';save();draw();toast('Looking legendary! 🎨')}
+if(f.id==='questForm'){data.tasks.unshift({id:uid(),title:String(fd.get('title')).trim().slice(0,160),category:fd.get('category'),minutes:Math.max(5,Math.min(600,+fd.get('minutes')||25)),priority:+fd.get('priority')||1,due:fd.get('due')||'',projectId:fd.get('project')||'',done:false});modal='';save();draw();toast('Task created.')}
+if(f.id==='projectForm'){XP.createProject(data,{id:uid(),title:String(fd.get('title')).trim().slice(0,120),description:String(fd.get('description')||''),icon:fd.get('icon')});modal='';save();go('projects');toast('Project created.')}
+if(f.id==='avatarForm'){data.name=String(fd.get('name')).trim().slice(0,30);data.avatar=fd.get('avatar');modal='';save();draw();toast('Profile updated.')}
 if(f.id==='authForm')await authSubmit(f);
 if(f.id==='findForm'){let q=String(fd.get('query')).replace(/[^a-zA-Z0-9_]/g,'').slice(0,24);if(q.length<2)throw Error('Search at least two characters');const p=await api('/rest/v1/xp_profiles?select=id,username,avatar&username=ilike.*'+encodeURIComponent(q)+'*&limit=12');$('#findresults').innerHTML=p.filter(x=>x.id!==user.id).map(x=>`<div class="socialitem">${esc(x.avatar)} ${esc(x.username)} <button class="btn sm" data-friend="${x.id}">Add friend</button></div>`).join('')||'<p class="muted">Nobody found yet.</p>'}
 }catch(x){toast(x.message)}});
@@ -183,11 +188,12 @@ async function resume(){
     try{
       const verified=await auth.completeEmailConfirmation(location.hash);
       history.replaceState(null,'',location.pathname+location.search);
-      if(verified){await loadAccount();toast('Email confirmed! Welcome to XP 🎉');return;}
+      if(verified){await loadAccount();toast('Email confirmed. Signed in.');return;}
     }catch(e){history.replaceState(null,'',location.pathname+location.search);toast(e.message)}
   }
   const active=await auth.restore();if(active)await loadAccount();
 }
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal){modal='';if(ticker){clearInterval(ticker);ticker=null}draw()}});
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&auth.session?.expires_at<Date.now()+60000)auth.refresh().catch(()=>auth.expire());
 });
