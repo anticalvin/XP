@@ -1,5 +1,5 @@
 export class AuthSession {
-  constructor({ baseUrl, publicKey, storage, fetcher = fetch, onChange = () => {}, onExpired = () => {}, now = Date.now, schedule = setTimeout, cancel = clearTimeout, storageKey = 'xp-web-auth' }) {
+  constructor({ baseUrl, publicKey, storage, fetcher = fetch, onChange = () => {}, onExpired = () => {}, now = Date.now, schedule = setTimeout, cancel = clearTimeout, storageKey = 'xp-web-auth', redirectUrl = null }) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.publicKey = publicKey;
     this.storage = storage;
@@ -10,6 +10,7 @@ export class AuthSession {
     this.schedule = schedule;
     this.cancel = cancel;
     this.storageKey = storageKey;
+    this.redirectUrl = redirectUrl;
     this.session = null;
     this.timer = null;
     this.refreshing = null;
@@ -78,7 +79,7 @@ export class AuthSession {
   }
 
   async signIn(email, password, mode = 'login') {
-    const endpoint = mode === 'signup' ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
+    const endpoint = mode === 'signup' ? '/auth/v1/signup' + (this.redirectUrl ? '?redirect_to=' + encodeURIComponent(this.redirectUrl) : '') : '/auth/v1/token?grant_type=password';
     const response = await this.fetcher(this.baseUrl + endpoint, {
       method: 'POST',
       headers: { apikey: this.publicKey, 'Content-Type': 'application/json' },
@@ -88,6 +89,22 @@ export class AuthSession {
     if (!response.ok) throw new Error(value.msg || value.message || value.error_description || 'Could not sign in');
     if (!value.access_token) return null;
     return this.persist(value);
+  }
+
+  async completeEmailConfirmation(hash) {
+    const params = new URLSearchParams(String(hash || '').replace(/^#/, ''));
+    const error = params.get('error_description') || params.get('error');
+    if (error) throw new Error(error);
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+    if (!access_token || !refresh_token) return false;
+    const response = await this.fetcher(this.baseUrl + '/auth/v1/user', {
+      headers: { apikey: this.publicKey, Authorization: 'Bearer ' + access_token }
+    });
+    const user = await response.json().catch(() => ({}));
+    if (!response.ok || !user.id) throw new Error('Email confirmed, but session verification failed. Please sign in.');
+    this.persist({ access_token, refresh_token, expires_in: Number(params.get('expires_in') || 3600), token_type: 'bearer', user });
+    return true;
   }
 
   async request(path, options = {}) {
