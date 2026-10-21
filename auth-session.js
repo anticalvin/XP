@@ -86,7 +86,13 @@ export class AuthSession {
       body: JSON.stringify({ email, password })
     });
     const value = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(value.msg || value.message || value.error_description || 'Could not sign in');
+    if (!response.ok) {
+      const message = value.msg || value.message || value.error_description || 'Could not sign in';
+      if (response.status === 429 || value.code === 'over_email_send_rate_limit') {
+        throw new Error('Email sending temporarily limited by Supabase. Please wait and try again later.');
+      }
+      throw new Error(message);
+    }
     if (!value.access_token) return null;
     return this.persist(value);
   }
